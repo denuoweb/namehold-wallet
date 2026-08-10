@@ -375,8 +375,10 @@ Each batch action opens a **confirmation modal** showing the count, estimated
 fee, and a collapsible list of the selected names. Cancel closes without
 broadcasting; Confirm signs + broadcasts the draft in one step.
 
-Batch operations use hsd's `createbatch` RPC, which handles consensus limits
-automatically (chunking to stay under block-size limits).
+Namehold builds and signs one transaction locally for each confirmed batch,
+then uses hsd only for the indexed-coin and broadcast path. A batch is limited
+to 100 selected names and is rejected above that bound; Namehold does not
+silently split one confirmation into multiple transactions.
 
 ### Paid name swaps
 

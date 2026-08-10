@@ -18,8 +18,12 @@
 - Added a fail-closed release-authority check so a fork cannot publish an update
   channel that installed clients do not query, and prevented an existing
   version tag from being rebuilt from a different commit.
+- Made published releases immutable on rerun and serialized updater-manifest
+  assembly, with an exact source/draft/platform/asset gate before publication.
 - Propagated CHANGELOG notes into `latest.json` so the in-app updater can show
   the same notes as the GitHub Release.
+- Cleared the submitted Namebase session cookie from renderer state immediately
+  after the Rust backend accepts and encrypts it.
 - Removed stale Portfolio/provider/storage claims, corrected auction phase and
   regtest instructions, and documented the wallet's value-capable but
   non-HNSA/non-HNSR/non-marketplace boundary.

@@ -26,7 +26,7 @@ available and users have had reasonable time to upgrade.
 | Namebase session cookie | AES-256-GCM under OS-keyring-held DEK (`noncustodial/cookie_vault.rs`) | Initially entered in the renderer and sent over IPC; the UI copy is cleared after successful handoff, then the backend holds it only for requests | Stored value is redacted from `get_settings` and cannot be written through generic `update_setting` |
 | hsd node RPC api-key | Stored in the local SQLite settings (or read from `hsd.conf`) without application-layer encryption | Held in `NodeRpcClient`; redacted from `get_settings` responses, though the Settings UI can submit a replacement | Existing values are never returned to the webview |
 | hsd node RPC api-key (transport) | N/A (not stored encrypted) | `guard_transport` rejects remote cleartext HTTP when a key is set; HTTPS required per [hsd API guidance](https://hsd-dev.org/api-docs/#authentication) | N/A |
-| Background sync daemon (`namehold-syncd`) | N/A — daemon holds no secrets and never has access to key material | Reads hsd RPC via the shared settings (api-key never leaves the Rust process); read-only against hsd | Rust binary — never touches the webview |
+| Background sync daemon (`namehold-syncd`) | Has no wallet signing material; it reads the locally stored hsd RPC API key from shared settings | Holds the RPC API key in its Rust process while performing read-only hsd requests; never signs or broadcasts | Rust binary — never touches the webview |
 
 ### Product and ecosystem boundary
 
@@ -149,9 +149,12 @@ The background sync daemon (`namehold-syncd`) is a separate Rust binary that:
   Connections, default ON).
 - Reads wallet profiles (UTXOs, name states, transactions) from the local hsd
   node via RPC.
+- Reads the configured hsd RPC API key into its Rust process for those requests;
+  it never receives wallet signing keys, mnemonic material, or passphrases.
 - Writes sync data to the shared SQLite database (`~/.namehold/portfolio.db`).
 - Writes its process ID to `~/.namehold/syncd.pid` for lifecycle tracking.
-- **Never signs transactions, never broadcasts, never touches key material.**
+- **Never signs transactions, never broadcasts, and never receives wallet
+  signing material.**
 
 ### Attack surfaces and mitigations
 
@@ -183,11 +186,14 @@ orphaned processes.
 time. The app's manual Sync and the daemon coordinate via heartbeats and stale
 takeover.
 
-#### 4. Daemon is read-only (no signing risk)
+#### 4. Daemon has no wallet signing path
 
-**Guarantee:** The daemon never has access to key material, never signs
-transactions, and never broadcasts. Even if the daemon is compromised, it cannot
-steal funds or sign malicious transactions. It can only read and write sync data.
+**Code boundary:** The shipped daemon has no wallet-signing API or signing
+material, never signs transactions, and never broadcasts. It does hold the hsd
+RPC API key while running and can read and write sync data. Compromise of the
+daemon or the app's OS account can therefore expose that credential and wallet
+metadata; do not treat daemon compromise as harmless or as a substitute for OS
+account security.
 
 ---
 
@@ -247,6 +253,10 @@ SPV (Simplified Payment Verification) mode runs hsd with `--spv` instead of
 | Signing without confirmation | Rust-owned secure window | `commands/tx.rs` | `tx_lifecycle_tests` |
 | RPC api-key sent cleartext | `guard_transport` rejects remote HTTP | `noncustodial/rpc.rs` | `rpc.rs::tests` |
 | Audit log leaks secrets | Redacted to `***` on write; re-redacted on read | `commands/settings.rs` | `settings_cmd_tests` |
+| Daemon crashes mid-sync | Heartbeat every 10s; stale-lock takeover after 30s; app respawns daemon on next startup | `db/sync_lock.rs`, `commands/daemon_ctl.rs` | `sync_lock` tests |
+| Concurrent writes by app + daemon | Cross-process `sync_locks` table; app acquires with priority, daemon preempts stale locks | `db/sync_lock.rs`, `commands/sync.rs` | `sync_lock`, `sync_race` tests |
+| Daemon signs / broadcasts (would-be) | Daemon has no access to key material or signing paths — it only reads hsd and writes sync data | `bin/namehold-syncd.rs`, `daemon/mod.rs` | (compile-time — no signing API in daemon build) |
+| hsd left running after app exit | Intentional when "Sync in background" ON; hsd bound to loopback + api-key required | `lib.rs` (setup/exit hooks) | `settings-background-sync` tests |
 
 ---
 
@@ -303,7 +313,3 @@ dependencies of this crate.
 - [User Manual](./docs/USER_MANUAL.md) -- user-facing security guidance
 - [CHANGELOG](./CHANGELOG.md) -- security fixes and improvements
 - [hsd API docs](https://hsd-dev.org/api-docs/) -- Handshake node RPC reference
-| Daemon crashes mid-sync | Heartbeat every 10s; stale-lock takeover after 30s; app respawns daemon on next startup | `db/sync_lock.rs`, `commands/daemon_ctl.rs` | `sync_lock` tests |
-| Concurrent writes by app + daemon | Cross-process `sync_locks` table; app acquires with priority, daemon preempts stale locks | `db/sync_lock.rs`, `commands/sync.rs` | `sync_lock`, `sync_race` tests |
-| Daemon signs / broadcasts (would-be) | Daemon has no access to key material or signing paths — it only reads hsd and writes sync data | `bin/namehold-syncd.rs`, `daemon/mod.rs` | (compile-time — no signing API in daemon build) |
-| hsd left running after app exit | Intentional when "Sync in background" ON; hsd bound to loopback + api-key required | `lib.rs` (setup/exit hooks) | `settings-background-sync` tests |
