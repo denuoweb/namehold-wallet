@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import { resolve } from "path";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { configDefaults } from "vitest/config";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -51,5 +52,11 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["src/test/setup.ts"],
+    // This suite exercises a Node CLI and is run explicitly by
+    // `pnpm check:updater-manifest`; jsdom cannot resolve its file: URL.
+    exclude: [
+      "scripts/validate-updater-manifest.test.mjs",
+      ...configDefaults.exclude,
+    ],
   },
 });
