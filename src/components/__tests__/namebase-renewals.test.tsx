@@ -145,6 +145,22 @@ describe("NamebaseDashboard — Expiring soon panel", () => {
       expect(invokeMock.mock.calls.map((c) => c[0])).not.toContain("fetch_namebase_renewals");
     });
   });
+
+  it("clears the renderer cookie field after a successful backend handoff", async () => {
+    invokeMock.mockImplementation(route({ connected: false }));
+    render(<NamebaseDashboard />, { wrapper: wrapper() });
+
+    const input = (await screen.findByLabelText(/Session Cookie/i)) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "nb-sunset=secret" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Connect$/i }));
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("connect_namebase", {
+        cookie: "nb-sunset=secret",
+      });
+      expect(input.value).toBe("");
+    });
+  });
 });
 
 describe("NamebaseDashboard — canonical table design", () => {

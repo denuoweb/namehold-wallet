@@ -28,7 +28,7 @@ function daysUntil(iso: string): number | null {
   return Math.floor((t - Date.now()) / 86_400_000);
 }
 
-/** Expiry urgency color, matching the Portfolio Renewals thresholds. */
+/** Shared expiry-urgency colors for the Namebase renewal list. */
 function expiryColor(days: number | null): string {
   if (days == null) return "text-gray-400";
   if (days < 30) return "text-red-600";
@@ -120,6 +120,9 @@ export function NamebaseDashboard() {
     if (!cookie.trim()) return;
     try {
       await invoke("connect_namebase", { cookie: cookie.trim() });
+      // The initial cookie necessarily crosses the renderer-to-Rust IPC boundary.
+      // Drop the React copy immediately after the backend accepts and encrypts it.
+      setCookie("");
       showToast("Connected to Namebase", "success");
       qc.invalidateQueries({ queryKey: ["namebase"] });
     } catch (e) {
