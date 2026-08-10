@@ -140,10 +140,14 @@ For a detailed threat model, attack surfaces, and mitigations, see [SECURITY.md]
 - **Non-custodial** — your keys live on your device, encrypted; nothing is custodied.
 - **Wallet signing secrets never reach the web layer** — mnemonic/passphrase
   entry and display happen in the secure window, and signing happens in Rust.
-- **Local-first** — keys and secrets stay on your device (encrypted at rest). By
-  default, balance and name lookups query the public HNSFans explorer, which sees
-  your wallet addresses and tracked names. Run your own hsd node (Settings) to keep
-  those lookups local. Namehold has no account/backend service and no telemetry.
+- **Local-first** — wallet signing material stays on your device and is
+  encrypted at rest. Configured service credentials have narrower boundaries:
+  the hsd RPC API key is stored locally without application-layer encryption,
+  while the optional Namebase cookie is encrypted at rest and sent to Namebase
+  only when that migration helper is used. By default, balance and name lookups
+  query the public HNSFans explorer, which sees your wallet addresses and
+  tracked names. Run your own hsd node (Settings) to keep those lookups local.
+  Namehold has no account/backend service and no telemetry.
 - **Auto-lock** — the unlocked signer times out after a configurable idle period.
 - **Namebase migration** — optional in-app helper for transferring domains from
   Namebase. The session cookie is initially entered in the main UI and crosses

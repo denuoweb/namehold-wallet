@@ -672,8 +672,11 @@ Then open the app normally.
   display happen in a small Rust-owned secure window, and signing happens in
   Rust. Your JavaScript UI never sees them.
 - **Local-first.** Namehold has no account/backend service and no telemetry.
-  Keys and secrets stay on your device. By default, balance/name lookups go to
-  the public HNSFans explorer,
+  Wallet signing material stays on your device and is encrypted at rest. The
+  hsd RPC API key is stored locally without application-layer encryption; the
+  optional Namebase cookie is encrypted at rest and sent to Namebase only when
+  that migration helper is used. By default, balance/name lookups go to the
+  public HNSFans explorer,
   which therefore sees your wallet addresses and the names you track; running
   your own hsd node keeps those lookups fully local. Other network access is
   limited to the configured hsd RPC endpoint, GitHub release checks, and the

@@ -16,6 +16,7 @@ on:
         default: false
 
 permissions:
+  actions: read
   contents: write
 
 # A tag push and a manual dispatch use different refs but can still resolve the
@@ -61,7 +62,9 @@ jobs:
             exit 1
           fi
           PRE=false
-          if [ "${PRERELEASE_INPUT:-false}" = "true" ] || printf '%s' "$V" | grep -Eq -- '-(alpha|beta|rc)'; then
+          VERSION_WITHOUT_BUILD="${V%%+*}"
+          if [ "${PRERELEASE_INPUT:-false}" = "true" ] || \
+             [ "$VERSION_WITHOUT_BUILD" != "${VERSION_WITHOUT_BUILD%%-*}" ]; then
             PRE=true
           fi
           SOURCE_SHA="$(git rev-parse HEAD)"
@@ -78,6 +81,36 @@ jobs:
         env:
           RELEASE_REPOSITORY: ${{ github.repository }}
         run: node scripts/check-release-authority.mjs
+
+      - name: Require exact main qualification
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ steps.resolve.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          MAIN_SHA="$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)"
+          if [ "$MAIN_SHA" != "$SOURCE_SHA" ]; then
+            echo "::error::Release source $SOURCE_SHA is not current main $MAIN_SHA. Push main and qualify that exact commit before tagging."
+            exit 1
+          fi
+          for WORKFLOW in ci.yml workflow-validation.yml; do
+            RUNS="$(gh run list \
+              --repo "$GH_REPO" \
+              --workflow "$WORKFLOW" \
+              --commit "$SOURCE_SHA" \
+              --status success \
+              --limit 100 \
+              --json conclusion,event,headSha,databaseId)"
+            QUALIFIED_COUNT="$(printf '%s\n' "$RUNS" | jq \
+              --arg sha "$SOURCE_SHA" \
+              '[.[] | select(.headSha == $sha and .conclusion == "success" and (.event == "push" or .event == "workflow_dispatch"))] | length')"
+            if [ "$QUALIFIED_COUNT" -lt 1 ]; then
+              echo "::error::$WORKFLOW has no successful push/manual qualification for exact source $SOURCE_SHA."
+              exit 1
+            fi
+            echo "$WORKFLOW qualified exact source $SOURCE_SHA"
+          done
 
       - name: Create draft release
         id: draft
@@ -118,6 +151,7 @@ jobs:
           if [ "$RELEASE_COUNT" -eq 1 ]; then
             EXISTING_DRAFT="$(jq -r --arg tag "$TAG" '.[][] | select(.tag_name == $tag) | .draft' "$RELEASES_JSON")"
             EXISTING_TARGET="$(jq -r --arg tag "$TAG" '.[][] | select(.tag_name == $tag) | .target_commitish' "$RELEASES_JSON")"
+            EXISTING_PRERELEASE="$(jq -r --arg tag "$TAG" '.[][] | select(.tag_name == $tag) | .prerelease' "$RELEASES_JSON")"
             RID="$(jq -r --arg tag "$TAG" '.[][] | select(.tag_name == $tag) | .id' "$RELEASES_JSON")"
             if [ "$EXISTING_DRAFT" != "true" ]; then
               echo "::error::$TAG is already public; published signed assets and latest.json are immutable. Bump the checked-in version."
@@ -125,6 +159,10 @@ jobs:
             fi
             if [ "$EXISTING_TARGET" != "$SHA" ]; then
               echo "::error::Existing $TAG draft targets $EXISTING_TARGET, not exact source $SHA. Delete the abandoned draft or bump the version after review."
+              exit 1
+            fi
+            if [ "$EXISTING_PRERELEASE" != "$PRERELEASE" ]; then
+              echo "::error::Existing $TAG draft prerelease=$EXISTING_PRERELEASE; expected $PRERELEASE. Delete the abandoned draft after review."
               exit 1
             fi
           else
@@ -142,9 +180,12 @@ jobs:
             fi
             EXISTING_DRAFT="$(jq -r --arg tag "$TAG" '.[][] | select(.tag_name == $tag) | .draft' "$RELEASES_JSON")"
             EXISTING_TARGET="$(jq -r --arg tag "$TAG" '.[][] | select(.tag_name == $tag) | .target_commitish' "$RELEASES_JSON")"
+            EXISTING_PRERELEASE="$(jq -r --arg tag "$TAG" '.[][] | select(.tag_name == $tag) | .prerelease' "$RELEASES_JSON")"
             RID="$(jq -r --arg tag "$TAG" '.[][] | select(.tag_name == $tag) | .id' "$RELEASES_JSON")"
-            if [ "$EXISTING_DRAFT" != "true" ] || [ "$EXISTING_TARGET" != "$SHA" ]; then
-              echo "::error::Created release did not read back as an exact-source draft."
+            if [ "$EXISTING_DRAFT" != "true" ] || \
+               [ "$EXISTING_TARGET" != "$SHA" ] || \
+               [ "$EXISTING_PRERELEASE" != "$PRERELEASE" ]; then
+              echo "::error::Created release did not read back as the requested exact-source draft."
               exit 1
             fi
           fi
@@ -362,6 +403,9 @@ jobs:
           # APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
         with:
           releaseId: ${{ needs.prepare.outputs.release_id }}
+          # Exact-tag bundle URLs also make a manually tested prerelease
+          # manifest self-contained; `/latest/download` excludes prereleases.
+          tagName: v${{ needs.prepare.outputs.version }}
           includeUpdaterJson: true
           updaterJsonKeepUniversal: false
           # tauri-action copies this value into latest.json. Editing only the
@@ -391,6 +435,7 @@ jobs:
           RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
           VERSION: ${{ needs.prepare.outputs.version }}
           SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
           EXPECTED_NOTES: ${{ needs.prepare.outputs.release_notes }}
         run: |
           set -euo pipefail
@@ -407,8 +452,9 @@ jobs:
             exit 1
           fi
           if [ "$(jq -r .tag_name "$RELEASE_JSON")" != "$TAG" ] || \
-             [ "$(jq -r .target_commitish "$RELEASE_JSON")" != "$SOURCE_SHA" ]; then
-            echo "::error::Release identity or source target changed after preparation."
+             [ "$(jq -r .target_commitish "$RELEASE_JSON")" != "$SOURCE_SHA" ] || \
+             [ "$(jq -r .prerelease "$RELEASE_JSON")" != "$PRERELEASE" ]; then
+            echo "::error::Release identity, source target, or channel changed after preparation."
             exit 1
           fi
 
@@ -443,6 +489,7 @@ jobs:
           RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
           VERSION: ${{ needs.prepare.outputs.version }}
           SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
         run: |
           set -euo pipefail
           TAG="v$VERSION"
@@ -450,8 +497,9 @@ jobs:
           gh api "repos/$GH_REPO/releases/$RELEASE_ID" > "$RELEASE_JSON"
           if [ "$(jq -r .draft "$RELEASE_JSON")" != "true" ] || \
              [ "$(jq -r .tag_name "$RELEASE_JSON")" != "$TAG" ] || \
-             [ "$(jq -r .target_commitish "$RELEASE_JSON")" != "$SOURCE_SHA" ]; then
-            echo "::error::Release identity, source, or draft state changed immediately before publication."
+             [ "$(jq -r .target_commitish "$RELEASE_JSON")" != "$SOURCE_SHA" ] || \
+             [ "$(jq -r .prerelease "$RELEASE_JSON")" != "$PRERELEASE" ]; then
+            echo "::error::Release identity, source, draft state, or channel changed immediately before publication."
             exit 1
           fi
           EXACT_TAG_REF="$(gh api "repos/$GH_REPO/git/matching-refs/tags/$TAG" \
@@ -469,7 +517,8 @@ jobs:
           gh api "repos/$GH_REPO/releases/$RELEASE_ID" > "$RELEASE_JSON"
           if [ "$(jq -r .draft "$RELEASE_JSON")" != "false" ] || \
              [ "$(jq -r .tag_name "$RELEASE_JSON")" != "$TAG" ] || \
-             [ "$(jq -r .target_commitish "$RELEASE_JSON")" != "$SOURCE_SHA" ]; then
+             [ "$(jq -r .target_commitish "$RELEASE_JSON")" != "$SOURCE_SHA" ] || \
+             [ "$(jq -r .prerelease "$RELEASE_JSON")" != "$PRERELEASE" ]; then
             echo "::error::Published release readback did not match the approved release."
             exit 1
           fi

@@ -92,6 +92,15 @@ test("accepts one complete signed multi-platform release manifest", () => {
   assert.match(result.stdout, /10 platforms/u);
 });
 
+test("accepts exact-tag URLs used by prerelease manifests", () => {
+  const result = validate(({ manifest }) => {
+    for (const entry of Object.values(manifest.platforms)) {
+      entry.url = entry.url.replace("/latest/download/", `/download/v${version}/`);
+    }
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("rejects an incomplete platform set", () => {
   const result = validate(({ manifest }) => {
     delete manifest.platforms["windows-x86_64-nsis"];

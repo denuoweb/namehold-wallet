@@ -120,12 +120,14 @@ This fully complies with the hsd node API's security guidance.
 
 ### The lower-risk alternative (documented, not enforced)
 
-Users who want zero credential exposure on their device can use Namebase's own
-web UI to initiate transfers/withdrawals to an address generated in Namehold,
-then use Namehold's chain-monitoring to confirm arrival. This workflow:
+Users who want zero Namebase-credential exposure to Namehold can use Namebase's
+own web UI to initiate transfers/withdrawals to an address generated in
+Namehold, then use Namehold's chain-monitoring to confirm arrival. The browser
+and Namebase still handle that service session. This workflow:
 
-- Requires no session cookie to be stored locally
+- Requires no Namebase session cookie to be stored by Namehold
 - Trades batch operations and in-app visibility for zero credential exposure
+  to Namehold
 - Is fully supported by Namehold's core functionality (address generation,
   chain monitoring, name tracking)
 

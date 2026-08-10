@@ -61,10 +61,18 @@ Changing a Git remote alone does not migrate the update channel.
    all derive their version from `package.json`; do not edit them separately.
    Add a CHANGELOG entry: rename `[Unreleased]` → `[X.Y.Z] - <date>` and open a
    fresh `[Unreleased]`.
-2. Commit and tag:
+2. Commit and push `main` to the approved release repository. Wait for both
+   **CI** and **Workflow Validation** to succeed for that exact commit; a
+   compiling release build is not a substitute for those test and policy
+   gates. The release workflow verifies the exact source is still current
+   `main` and reads those successful runs before it creates a draft.
+   ```bash
+   git push <approved-release-remote> main
+   ```
+3. Only after those exact-source checks are green, tag and push the tag:
    ```bash
    git tag vX.Y.Z
-   git push <approved-release-remote> main vX.Y.Z
+   git push <approved-release-remote> vX.Y.Z
    ```
    Resolve `<approved-release-remote>` to the repository that passed the
    release-authority gate; do not assume a remote named `origin` is the update
@@ -77,7 +85,7 @@ Changing a Git remote alone does not migrate the update channel.
    resume only a draft whose target is that same exact commit. An already-public
    release is immutable: the workflow refuses to replace its signed assets or
    updater manifest even when the tag still resolves to the same commit.
-3. The `release.yml` workflow:
+4. The `release.yml` workflow:
    - Validates release authority, all checked-in version sources, and the exact
      tag/manual input before creating a release or starting a build.
    - Creates a **draft** GitHub Release.
@@ -99,17 +107,23 @@ Changing a Git remote alone does not migrate the update channel.
      Every URL and signature must resolve to an asset in the approved release
      repository. A missing or partial platform manifest leaves the release as
      a draft.
-   - Un-drafts the release (makes it public + "latest").
-4. Existing installs auto-detect the new version within ~30 s of their next
-   launch (or immediately when the user clicks "Check for updates" in Settings).
+   - Un-drafts the release. Stable versions become `latest`; SemVer
+     prereleases stay on the prerelease channel and do not replace the latest
+     stable release.
+5. Existing installs auto-detect a new stable version within ~30 s of their
+   next launch (or immediately when the user clicks "Check for updates" in
+   Settings). GitHub excludes prereleases from the configured `latest`
+   endpoint, so prerelease artifacts and their exact-tag updater manifest must
+   be downloaded and tested manually; they are not offered to ordinary
+   installs.
 
 ---
 
 ## How the updater works
 
 - Endpoint: `https://github.com/DimazzzZ/namehold-wallet/releases/latest/download/latest.json`
-- `latest.json` contains the new version, CHANGELOG notes, per-platform download
-  URLs, and the Ed25519 signature of each bundle.
+- `latest.json` contains the new version, CHANGELOG notes, exact-tag
+  per-platform download URLs, and the Ed25519 signature of each bundle.
 - The plugin verifies the signature against the embedded public key before
   installing. If the signature doesn't match, the update is rejected.
 - On Windows the app exits automatically during install (OS limitation). On
