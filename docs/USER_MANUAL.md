@@ -42,11 +42,17 @@ wallet talks directly to the Handshake network:
   the HNSFans explorer by default. When your local hsd is synced, the wallet
   automatically switches to node-authoritative reads (faster, more reliable).
 - **Writes (Send HNS, name actions): local hsd required.** Broadcasting a
-  Handshake transaction and finding your unspent coins needs a local
-  **address-indexed** hsd node — no hosted provider offers that today.
+  Handshake transaction and finding your unspent coins uses Namehold's
+  implemented write path: an **address-indexed** hsd node.
 
-Your **secrets never touch the web UI.** Passphrases and recovery phrases are
-entered and displayed only inside a small **Rust-owned secure window**.
+Namehold is a value-capable desktop wallet, not an HNSA service authority, HNSR
+relay/rendezvous node, or P2P marketplace. Its paid-swap tool executes a deal
+whose parties and terms were arranged elsewhere; it does not discover peers or
+offers, match orders, negotiate terms, or escrow funds.
+
+Your **wallet signing secrets never touch the web UI.** Passphrases and recovery
+phrases are entered and displayed only inside a small **Rust-owned secure
+window**.
 
 ---
 
@@ -93,12 +99,14 @@ details.
 
 ## 3. Sidebar and header
 
-The sidebar has four top-level sections:
+The sidebar has six top-level sections:
 
 | Section | Purpose |
 |---------|---------|
 | **Wallet** | Balance, receive, send, recent transactions, owned names. Default page. |
+| **Activity** | Full transaction and name-action history. |
 | **Auctions** | Look up a name, place bids, reveal, register, see active auctions. |
+| **Watchlist** | Track names you do not own and their auction/expiry state. |
 | **Move from Namebase** | Guided migration off the custodial Namebase service. |
 | **Settings** | Connections, node control, backups, notifications, advanced options. |
 
@@ -221,8 +229,8 @@ name goes through four phases:
 
 | Phase | Duration (mainnet) | What happens |
 |-------|--------------------|--------------|
-| **Opening** | ~1 day (720 blocks) | Name enters the auction. No bids accepted yet. |
-| **Bidding** | ~5 days (1 440 blocks) | Anyone can place sealed bids. Bid + lockup can differ to obscure your real bid. |
+| **Opening** | ~5 days (720 blocks) | Name enters the auction. No bids accepted yet. |
+| **Bidding** | ~5 days (720 blocks) | Anyone can place sealed bids. Bid and total lockup can differ to obscure your real bid. |
 | **Reveal** | ~10 days (1 440 blocks) | Bids revealed. **Fail to reveal and you lose your lockup.** |
 | **Closed** | — | Highest bidder pays the **second-highest** bid and can register the name. |
 
@@ -372,6 +380,11 @@ automatically (chunking to stay under block-size limits).
 
 ### Paid name swaps
 
+Buyer and seller must first coordinate the name, price, and addresses out of
+band. Namehold has no offer discovery, matching, negotiation, relay, escrow, or
+marketplace service; this flow only builds and verifies the atomic on-chain
+execution.
+
 To sell a name for HNS (**Sell with payment** flow):
 1. Open the name in **Manage** → **Sell with payment** section.
 2. Enter the buyer's address, your price (HNS), and confirm. This transfers
@@ -468,7 +481,7 @@ All node settings live under **Settings → Connections**.
 | **hsd binary path** | (auto) | Only needed if hsd isn't on PATH. |
 | **Autostart HSD when the app launches** | **on** | Toggle off to keep hsd manual. |
 | **Sync in background** | **on** | When enabled, a background daemon syncs your wallet every 60 seconds, even when the app is closed. When disabled, only manual Sync (or the app's auto-sync while running) refreshes your data. |
-| **Node mode** | **Full node** | **SPV** (lightweight, faster sync, explorer-dependent) or **Full node** (requires ~15GB, indexes all addresses). SPV mode is read-only — cannot send transactions. |
+| **Node mode** | **Full node** | **SPV** (lightweight, faster sync, explorer-dependent) or **Full node** (stores and indexes the growing chain). SPV mode is read-only — cannot send transactions. |
 | **Explorer fallback URL** | (empty) | When primary explorer is unreachable, automatically tries this URL. Leave empty to disable failover. |
 
 ### Background sync
@@ -494,11 +507,13 @@ data fresh without the app being open.
 
 The **Node mode** dropdown (Settings → Connections) lets you choose between:
 
-- **Full node** (default): hsd runs with `--index-address --index-tx`. Requires
-  ~15GB disk space and initial sync time. Supports sending and full local data.
+- **Full node** (default): hsd runs with `--index-address --index-tx`. Stores and
+  indexes the growing chain and requires an initial sync. Supports sending and
+  full local data.
 - **SPV** (lightweight): hsd runs with `--spv`. Downloads only block headers
-  (~几十MB). Faster initial sync, less disk usage. **Read-only** — cannot send
-  transactions. Balance and name data come from the explorer.
+  and therefore uses substantially less storage. Faster initial sync, less disk
+  usage. **Read-only** — cannot send transactions. Balance and name data come
+  from the explorer.
 
 When SPV mode is active:
 - The **StatusStrip** shows "Explorer (SPV)" to indicate data comes from the explorer.
@@ -568,7 +583,13 @@ standalone.
 2. Review your custodial domains, spotting **expiring soon** entries.
 3. **Transfer** names out to your own wallet address (Namebase-initiated).
 4. **Withdraw HNS** to your address.
-5. **Compare** your imported inventory against what Namebase still holds.
+5. Optionally **Import All TLDs** and import account history from Namebase or a
+   local CSV for local tracking.
+6. Review the domain-transfer and HNS-withdrawal activity lists.
+
+The cookie is necessarily present in the main UI while you paste it and crosses
+IPC once to the Rust backend. After a successful connection the field is
+cleared; the backend encrypts the stored value and never returns it to the UI.
 
 On-chain finalization of the transfers uses the same node-backed write path
 as the rest of the wallet (Signer unlock → sign → broadcast).
@@ -584,9 +605,11 @@ background sync daemon running even after you close the main window.
 ### Close to tray
 
 Enabled by default (**Settings → System Tray → "Close to tray"**). Clicking the
-window's close button hides Namehold to the tray instead of quitting. Click the
-tray icon or choose **Open Namehold** from the tray menu to restore the window.
-Use **Quit** from the tray menu to fully exit.
+window's close button hides Namehold to the tray instead of quitting. The first
+close on macOS shows a one-time notification explaining that it is still
+running. Click the tray icon, choose **Open Namehold**, or click the macOS Dock
+icon to restore the window and Dock presence. Use **Quit** from the tray menu to
+fully exit.
 
 ### Launch at login
 
@@ -623,7 +646,9 @@ When background sync is running, the daemon also writes its process ID to
 
 ### macOS quarantine
 
-The macOS build is not code-signed. On first launch macOS may show:
+Local macOS builds are unsigned unless Apple signing credentials are provided.
+Verify the signing/notarization status of a downloaded release artifact. An
+unsigned build may show:
 
 > "Namehold" can't be opened because Apple cannot check it for malicious software.
 
@@ -637,18 +662,20 @@ Then open the app normally.
 
 ---
 
-## 14. Security
+## 15. Security
 
 - **Non-custodial.** Your keys live on your device, encrypted at rest with
   Argon2id + AES-256-GCM. Nothing is custodied.
-- **Secrets never reach the web layer.** Passphrase entry and recovery-phrase
+- **Wallet signing secrets never reach the web layer.** Passphrase entry and recovery-phrase
   display happen in a small Rust-owned secure window, and signing happens in
   Rust. Your JavaScript UI never sees them.
-- **Local-first.** No cloud, no telemetry. Keys and secrets stay on your
-  device. By default, balance/name lookups go to the public HNSFans explorer,
+- **Local-first.** Namehold has no account/backend service and no telemetry.
+  Keys and secrets stay on your device. By default, balance/name lookups go to
+  the public HNSFans explorer,
   which therefore sees your wallet addresses and the names you track; running
-  your own hsd node keeps those lookups fully local. The only other outbound
-  HTTP is to your configured node.
+  your own hsd node keeps those lookups fully local. Other network access is
+  limited to the configured hsd RPC endpoint, GitHub release checks, and the
+  optional Namebase migration service when you connect it.
 - **Localhost-first.** Namehold connects to hsd on `127.0.0.1` by default;
   non-localhost URLs are allowed but warned about.
 - **Auto-lock.** The unlocked signer times out after a configurable idle
@@ -663,7 +690,7 @@ Then open the app normally.
 
 ---
 
-## 15. Troubleshooting
+## 16. Troubleshooting
 
 ### Header shows "READ-ONLY" and Send is disabled
 
@@ -711,7 +738,7 @@ spaces, and duplicate rows are OK (they're updated, not errors).
 
 ---
 
-## 16. Auto-update
+## 17. Auto-update
 
 Starting with **v0.2.0**, Namehold checks for its own updates automatically.
 You don't need to visit a website or run a package manager; new signed
@@ -742,13 +769,14 @@ mind, and the banner will reappear when the next version ships.
 Every update bundle is **Ed25519-signed** at release time. Namehold verifies
 the signature against a public key embedded in the app binary before
 installing anything; unsigned or tampered bundles are rejected. The private
-signing key never touches your machine.
+signing key is not shipped in the app or delivered to an end-user device; it is
+used only by the release process.
 
 ### Checking your current version
 
 Open **Settings > Updates**. Your running version is shown at the top of
-the card (e.g. "Current version: v0.2.0"). This is currently the only
-in-app surface that displays the app version.
+the card (for example, "Current version: v0.4.0"). The same version also appears
+at the bottom of the sidebar and on the **About** page.
 
 ---
 

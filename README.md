@@ -49,7 +49,8 @@ Built with Tauri v2, React + TypeScript, Rust, and SQLite.
   Watchlist" buttons in name modals.
 - **Paid name swaps** — atomic buyer-seller name transfer with payment. The buyer
   finalizes a TRANSFER and pays the seller in a single transaction
-  (finalizeWithPayment), so neither party can renege after the lockup expires.
+  (`finalizeWithPayment`). The parties arrange the name, price, addresses, and
+  transfer out of band; Namehold only executes and verifies the agreed swap.
 - **Recover lost bids** — if you lose your local bid data (reinstall, seed-
   restore, import from another wallet), Namehold can brute-force the bid value
   from your seed and reveal it before the window closes. See
@@ -65,7 +66,7 @@ Built with Tauri v2, React + TypeScript, Rust, and SQLite.
 ### Move from Namebase (one feature, not the core)
 - Connect with your Namebase session cookie to **list custodial domains**, see
   which are **expiring soon**, **transfer names out** to your wallet, **withdraw
-  HNS**, and **compare** your inventory against what Namebase still holds.
+  HNS**, import account history, and track transfer/withdrawal activity.
 
 ### Auto-update (since v0.2.0)
 - Namehold checks for updates automatically ~30 seconds after launch. When a
@@ -89,8 +90,8 @@ Built with Tauri v2, React + TypeScript, Rust, and SQLite.
 ### SPV mode
 
 - An opt-in **lightweight alternative** to the full node mode. SPV downloads only
-  block headers (~几十MB vs ~15GB), enabling fast first launch and minimal disk
-  usage.
+  block headers, so its storage and initial-sync requirements are substantially
+  lower than an indexed full node. Exact sizes vary with chain growth.
 - **Balance and name data come from the explorer** — sending is blocked in SPV mode
   (read-only).
 - Controlled via a **"Node mode"** dropdown in Settings → Connections (default:
@@ -99,6 +100,18 @@ Built with Tauri v2, React + TypeScript, Rust, and SQLite.
 - **Explorer failover** — all explorer HTTP requests support automatic failover to a
   configurable fallback URL.
 - **SPV indicator** in the StatusStrip — shows "Explorer (SPV)" when in SPV mode.
+
+## Scope and ecosystem boundaries
+
+Namehold is a **value-capable desktop wallet**. With an unlocked signer and a
+reachable, synced, address-indexed hsd node, it can construct, sign, and
+broadcast irreversible HNS payments and name covenants.
+
+It does **not** expose HNSA service-authority/provider controls, operate an HNSR
+relay or rendezvous role, or provide peer/order discovery, matching,
+negotiation, escrow, or a P2P marketplace. The paid-swap flow is an atomic
+execution helper for a transfer the buyer and seller have already arranged; it
+is not a marketplace or offer-discovery network.
 
 ## How it works
 
@@ -125,15 +138,17 @@ Built with Tauri v2, React + TypeScript, Rust, and SQLite.
 For a detailed threat model, attack surfaces, and mitigations, see [SECURITY.md](./SECURITY.md).
 
 - **Non-custodial** — your keys live on your device, encrypted; nothing is custodied.
-- **Secrets never reach the web layer** — entry/display happen in the secure window,
-  and signing happens in Rust.
+- **Wallet signing secrets never reach the web layer** — mnemonic/passphrase
+  entry and display happen in the secure window, and signing happens in Rust.
 - **Local-first** — keys and secrets stay on your device (encrypted at rest). By
   default, balance and name lookups query the public HNSFans explorer, which sees
   your wallet addresses and tracked names. Run your own hsd node (Settings) to keep
-  all lookups fully local. No cloud, no telemetry.
+  those lookups local. Namehold has no account/backend service and no telemetry.
 - **Auto-lock** — the unlocked signer times out after a configurable idle period.
 - **Namebase migration** — optional in-app helper for transferring domains from
-  Namebase. The session cookie is encrypted at rest and never exposed to the web
+  Namebase. The session cookie is initially entered in the main UI and crosses
+  IPC to the Rust backend; the UI copy is cleared after a successful handoff,
+  the stored cookie is encrypted at rest, and it is never returned to the web
   layer. See [SECURITY.md](./SECURITY.md) for the full threat model and a
   lower-risk alternative.
 
@@ -142,7 +157,8 @@ For a detailed threat model, attack surfaces, and mitigations, see [SECURITY.md]
 - [Node.js](https://nodejs.org/) 22+
 - [pnpm](https://pnpm.io/) 11+ (CI pins `11.17.0` via the `packageManager`
   field; run `corepack enable` to match it locally)
-- [Rust](https://www.rust-lang.org/tools/install) (stable, edition 2021)
+- [Rust](https://www.rust-lang.org/tools/install) 1.97.0 (the toolchain pinned
+  by CI; edition 2021)
 - [hsd](https://github.com/handshake-org/hsd) — **only needed for sending / name
   actions** (reads work without it). Run it with `--index-address`.
 
@@ -194,7 +210,8 @@ Namebase**, paste your Namebase session cookie to connect, then:
 - review your custodial domains and which are **expiring soon**,
 - **transfer** names out to your own wallet address,
 - **withdraw HNS** to an address,
-- **compare** your imported inventory against Namebase's current list.
+- optionally import the current TLD list and account history locally, and
+- track domain-transfer and HNS-withdrawal activity.
 
 On-chain finalization of transfers uses the same node-backed write path as the
 rest of the wallet.
@@ -212,7 +229,9 @@ Output in `src-tauri/target/release/bundle/` — macOS `.app`/`.dmg`, Windows NS
 
 ## macOS
 
-The macOS build is not code-signed. On first launch macOS may show:
+Local macOS builds are unsigned unless you provide Apple signing credentials.
+Verify the signing/notarization status of a downloaded release artifact before
+installing it. An unsigned build may show:
 
 > "Namehold" can't be opened because Apple cannot check it for malicious software.
 
@@ -233,15 +252,15 @@ on every platform:
 - `~/.namehold/syncd.pid` — background sync daemon's process ID (present only
   while the daemon is running)
 
-It holds your wallet profiles, the encrypted vault, the local chain cache, and (if
-used) the Portfolio inventory/batches/audit log.
+It holds wallet profiles, the encrypted vault, local chain/sync state, optional
+Namebase migration/history data, saved swap offers, and the audit log.
 
 ## Tech stack
 
 - **Tauri v2** — desktop shell
 - **React 19 + TypeScript** — frontend
 - **Vite** — build tool
-- **TanStack Query** — async state (TanStack Table + Virtual for the Portfolio grid)
+- **TanStack Query / Table / Virtual** — async state and reusable tabular UI
 - **Zustand** — client state
 - **Zod** — validation
 - **SQLite (rusqlite)** — local database

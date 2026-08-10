@@ -1,8 +1,9 @@
 # Testing the non-custodial wallet on regtest
 
-The wallet signs locally and only talks to a node for **reads + broadcast**. To
-exercise everything end-to-end you need a local **hsd regtest node with the
-address index enabled** (so `getcoinsbyaddress` works).
+The wallet signs locally. Reads can come from an explorer or node, while the
+implemented write path uses hsd for indexed coins and broadcast. To exercise
+everything end-to-end you need a local **hsd regtest node with the address index
+enabled** (so `getcoinsbyaddress` works).
 
 ## 1. Start a regtest node
 
@@ -66,8 +67,9 @@ In the Owned Names box, type a test name (e.g. `testname`) → **Name actions**:
 
 1. **Open** → broadcast → mine `treeInterval`+1 blocks (regtest treeInterval=5):
    `generatetoaddress 6 <addr>`.
-2. **Bid** (e.g. bid `1000000`, lockup `2000000`) → mine through the bidding
-   period (regtest biddingPeriod=5): `generatetoaddress 6 <addr>`.
+2. **Bid** (for example, bid `1` HNS and total lockup `2` HNS in the UI) → mine
+   through the bidding period (regtest biddingPeriod=5):
+   `generatetoaddress 6 <addr>`.
 3. **Reveal** → mine through reveal period (regtest revealPeriod=10):
    `generatetoaddress 11 <addr>`.
 4. **Sync**, then **Register** (optionally paste records JSON) → mine 1 block.
@@ -109,9 +111,9 @@ If a flow passes unit + integration tests but fails on regtest, the regtest resu
 
 ## Notes / known caveats
 
-- Covenant **serialization + signing** match hsd v6.1.1 byte-for-byte and are
-  unit-tested, but on-chain acceptance of each action is exactly what this
-  regtest pass validates — start here before testnet/mainnet.
+- Covenant **serialization + signing** have unit/vector coverage, but on-chain
+  acceptance by the target hsd version is exactly what this regtest pass
+  validates — start here before testnet/mainnet.
 - If `getcoinsbyaddress` errors, the node was started without `--index-address`.
 - REVEAL/REDEEM need the wallet to have **synced** after the BID so it can find
   the bid coin (it matches by the bid address).
@@ -128,17 +130,21 @@ The following scenarios must be validated against a running regtest node to conf
 
 1. Start a regtest hsd node:
    ```bash
-   hsd --network=regtest --index-address --index-tx --api-key=testkey --listen
+   hsd --network=regtest --index-address --index-tx \
+       --http-host=127.0.0.1 --api-key=testkey --no-wallet
    ```
    Node RPC listens on `127.0.0.1:14037` (regtest's default), NOT the mainnet
    port 12037.
 
-2. Mine an initial set of blocks so names can be opened:
+2. Start Namehold, create a regtest profile, and copy its receive address.
+
+3. Mine an initial set of blocks to that address so coinbase funds mature and
+   names can be opened:
    ```bash
-   hsd-rpc --network=regtest generatetoaddress 200 $(hsd-rpc --network=regtest getnewaddress)
+   hsd-cli --network=regtest --api-key=testkey rpc generatetoaddress 200 <receiveAddress>
    ```
 
-3. Start the Namehold app with the regtest node configured in Settings.
+4. Configure the regtest node URL and API key in Namehold, then sync.
 
 ### Scenario 1: Winner — Open → Bid → Reveal → Register
 
@@ -172,17 +178,18 @@ The following scenarios must be validated against a running regtest node to conf
 |------|--------|----------------|
 | 1 | Register a name (from Scenario 1) | Name is owned |
 | 2 | Transfer the name to another regtest address | TRANSFER tx broadcasted |
-| 3 | Finalize the transfer | FINALIZE tx broadcasted; name moves to recipient |
-| 4 | Verify original wallet no longer `ownsName` | `capabilities.ownsName` is `false` |
+| 3 | Mine through `transferLockup` (10 blocks on regtest) | Transfer becomes finalizable |
+| 4 | Finalize the transfer | FINALIZE tx broadcasted; name moves to recipient |
+| 5 | Verify original wallet no longer `ownsName` | `capabilities.ownsName` is `false` |
 
-### Scenario 4: Missed Reveal (simulated)
+### Scenario 4: Missed Reveal (negative safety case)
 
 | Step | Action | Expected Result |
 |------|--------|----------------|
 | 1 | Open a name and bid | BID tx broadcasted |
 | 2 | Mine through REVEAL phase without revealing | Phase transitions to CLOSED |
-| 3 | Verify task state is `lostNeedsRedeem` | `canRedeem` is `true`; bid lockup still reclaimable |
-| 4 | Redeem the lockup | Lockup value returned to wallet |
+| 3 | Reopen the name actions | No late reveal or redeem action is offered for the unrevealed BID |
+| 4 | Verify no transaction is broadcast | The lockup is correctly treated as forfeited; the UI must not promise recovery after the reveal window |
 
 ### Backend Capability Verification
 
@@ -191,7 +198,9 @@ Run the following command to validate the capability model:
 cd src-tauri && cargo test -- auction_capabilities
 ```
 
-Expected: 25 tests pass covering all task-state derivations and next-action mappings.
+Expected: the filtered capability suite passes, covering task-state derivations
+and next-action mappings. Do not encode a fixed test count; it grows with the
+capability matrix.
 
 ### Full Backend Test Suite
 

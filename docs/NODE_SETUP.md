@@ -8,12 +8,10 @@ device. It splits how it talks to the Handshake network:
   addresses. You can view your wallet immediately after creating/importing it.
 - **Sending (HNS sends + name covenant actions): needs a local hsd node.** Spending
   requires the wallet's unspent-coin set (UTXOs) and the ability to broadcast a
-  Handshake-format transaction — and **no hosted provider offers that**. We checked:
-  - HNSFans / 3xpl — read-only, no UTXOs, no broadcast.
-  - Blockchair — does not support Handshake at all (no API for it).
-  - HNScan — no public API. Namebase — custodial/being wound down.
-
-  So to send, run hsd yourself (locally, or on a small VPS — the chain is light).
+  Handshake-format transaction. Namehold's implemented write path uses an
+  address-indexed hsd RPC endpoint; the configured explorer is read-only in the
+  app. Run hsd locally or connect to an explicitly trusted remote node over a
+  protected transport.
 
 ## Run a node for sending
 
@@ -75,7 +73,8 @@ background"**. hsd will be stopped the next time you close the app.
 For users who don't need to send transactions or want faster initial setup:
 
 - **SPV mode** runs hsd with `--spv` (no `--index-address`), downloading only block
-  headers. Much faster initial sync and minimal disk usage (~几十MB vs ~15GB).
+  headers. It has a much faster initial sync and substantially lower storage
+  requirements than an indexed full node; exact sizes vary with chain growth.
 - **Read-only** — cannot send transactions. Balance and name data come from the
   explorer.
 - **Explorer failover** — set a fallback URL in Settings for when the primary

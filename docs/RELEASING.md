@@ -64,13 +64,16 @@ Changing a Git remote alone does not migrate the update channel.
 2. Commit and tag:
    ```bash
    git tag vX.Y.Z
-   git push origin main --tags
+   git push <approved-release-remote> main vX.Y.Z
    ```
-   The tag must be exactly `v` plus the checked-in version. A manual workflow
-   run uses that same checked-in version; its optional version input is only a
-   confirmation and cannot override source files. If the version tag already
-   resolves to another commit, the workflow fails before touching a release;
-   bump the version instead of rebuilding old version metadata from new source.
+   Resolve `<approved-release-remote>` to the repository that passed the
+   release-authority gate; do not assume a remote named `origin` is the update
+   channel, and do not push every local tag. The tag must be exactly `v` plus
+   the checked-in version. A manual workflow run uses that same checked-in
+   version; its optional version input is only a confirmation and cannot
+   override source files. If the version tag already resolves to another
+   commit, the workflow fails before touching a release; bump the version
+   instead of rebuilding old version metadata from new source.
 3. The `release.yml` workflow:
    - Validates release authority, all checked-in version sources, and the exact
      tag/manual input before creating a release or starting a build.

@@ -20,6 +20,9 @@
   version tag from being rebuilt from a different commit.
 - Propagated CHANGELOG notes into `latest.json` so the in-app updater can show
   the same notes as the GitHub Release.
+- Removed stale Portfolio/provider/storage claims, corrected auction phase and
+  regtest instructions, and documented the wallet's value-capable but
+  non-HNSA/non-HNSR/non-marketplace boundary.
 
 ### Changed
 - Added compiler and Rust target caching to the cross-platform release workflow.
@@ -66,8 +69,8 @@
 - **New DB migration `021_sync_locks.sql`** — creates the `sync_locks` table for
   cross-process sync coordination.
 - **SPV (Simplified Payment Verification) mode** — an opt-in lightweight alternative
-  to the full node mode. SPV downloads only block headers (~几十MB vs ~15GB),
-  enabling fast first launch and minimal disk usage. Balance and name data come from
+  to the full node mode. SPV downloads only block headers, giving it substantially
+  lower storage and initial-sync requirements. Balance and name data come from
   the explorer; sending is blocked in SPV mode (read-only). Controlled via a
   **"Node mode"** dropdown in Settings → Connections (default: Full node).
 - **Explorer failover** — all explorer HTTP requests now support automatic failover

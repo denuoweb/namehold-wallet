@@ -201,7 +201,9 @@ hsd-cli rpc generate 1440 # advance through REVEAL phase
 - [ ] Tray icon appears in menu bar / notification area
 - [ ] Tray icon reflects node state (normal / syncing / stopped)
 - [ ] "Close to tray" (default ON): closing window hides to tray, does not quit
+- [ ] First macOS close-to-tray shows the one-time "still running" notification
 - [ ] Click tray icon restores the window
+- [ ] Clicking the macOS Dock icon restores the hidden window and Dock icon
 - [ ] Tray menu: Open Namehold, node status with Start/Stop toggle, Sync in background checkbox, Quit
 - [ ] "Launch at login" toggle registers/unregisters OS autostart
 - [ ] Quit from tray menu fully exits the app
@@ -231,6 +233,7 @@ hsd-cli rpc generate 1440 # advance through REVEAL phase
 - [ ] "Sell with payment" flow available for owned names in TRANSFER
 - [ ] Saved offers list shows pending offers
 - [ ] claim_paid_transfer verifies the broadcast tx before marking paid
+- [ ] UI makes no marketplace/discovery claim; parties and terms are arranged out of band
 
 ### K. Bid recovery
 - [ ] REVEAL-phase name with no local bid data shows "Recover bid" panel
@@ -246,7 +249,8 @@ hsd-cli rpc generate 1440 # advance through REVEAL phase
 - 1 HNS = 1,000,000 doos (dollarydoos)
 - Backend covenant builders expect **integer doos**
 - UI should let users enter **HNS values** and convert internally
-- Bid = visible bid amount; Lockup = additional hidden amount (total commitment = bid + lockup)
+- Bid = hidden value revealed later; Lockup = total HNS committed and must be at
+  least the bid (the `lockup - bid` excess obscures the value and returns on reveal)
 
 ## Auction Lifecycle Reference
 
@@ -259,10 +263,6 @@ AVAILABLE → OPENING (5 days / ~720 blocks)
 ```
 
 On regtest, these periods are much shorter and blocks can be mined instantly.
-
----
-
-```
 
 ---
 

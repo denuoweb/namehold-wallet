@@ -118,7 +118,7 @@ jobs:
         run: sccache --show-stats
 
   rust-test:
-    name: Rust tests (926 tests via nextest)
+    name: Rust tests (nextest)
     runs-on: ubuntu-latest
     env:
       RUSTC_WRAPPER: sccache

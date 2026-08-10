@@ -308,7 +308,7 @@ export function Settings() {
                 className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
                 data-testid="node-mode-select"
               >
-                <option value="full">Full node (requires ~15GB, indexes all addresses)</option>
+                <option value="full">Full node (stores and indexes the full chain)</option>
                 <option value="spv">Lightweight SPV (faster sync, uses explorer for data)</option>
               </select>
               <div className="text-xs text-gray-500">

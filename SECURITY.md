@@ -23,10 +23,19 @@ available and users have had reasonable time to upgrade.
 | Asset | At-rest protection | In-memory protection | Renderer isolation |
 |-------|-------------------|---------------------|-------------------|
 | BIP39 seed phrase | Argon2id + AES-256-GCM under user passphrase (`noncustodial/vault.rs`) | Time-boxed session; zeroized on lock (`noncustodial/session.rs`) | Never crosses into the webview |
-| Namebase session cookie | AES-256-GCM under OS-keyring-held DEK (`noncustodial/cookie_vault.rs`) | Held only during the HTTP request | Redacted from `get_settings`; write-denied from renderer |
-| hsd node RPC api-key | Redacted from `get_settings`; write-denied from renderer | Held in `NodeRpcClient` struct | Never sent to the webview |
+| Namebase session cookie | AES-256-GCM under OS-keyring-held DEK (`noncustodial/cookie_vault.rs`) | Initially entered in the renderer and sent over IPC; the UI copy is cleared after successful handoff, then the backend holds it only for requests | Stored value is redacted from `get_settings` and cannot be written through generic `update_setting` |
+| hsd node RPC api-key | Stored in the local SQLite settings (or read from `hsd.conf`) without application-layer encryption | Held in `NodeRpcClient`; redacted from `get_settings` responses, though the Settings UI can submit a replacement | Existing values are never returned to the webview |
 | hsd node RPC api-key (transport) | N/A (not stored encrypted) | `guard_transport` rejects remote cleartext HTTP when a key is set; HTTPS required per [hsd API guidance](https://hsd-dev.org/api-docs/#authentication) | N/A |
 | Background sync daemon (`namehold-syncd`) | N/A — daemon holds no secrets and never has access to key material | Reads hsd RPC via the shared settings (api-key never leaves the Rust process); read-only against hsd | Rust binary — never touches the webview |
+
+### Product and ecosystem boundary
+
+This is a value-capable desktop wallet: an unlocked signer plus a synced,
+address-indexed hsd node can authorize and broadcast irreversible HNS payments
+and name covenants. Namehold does not implement an HNSA service authority or
+provider role, an HNSR relay/rendezvous role, or peer/offer discovery, matching,
+negotiation, or escrow. Its paid-swap path only atomically executes and verifies
+terms that the buyer and seller arranged out of band; it is not a marketplace.
 
 ---
 
@@ -45,14 +54,19 @@ Namehold.
 
 **Mitigations (3 layers):**
 
-- Cookie never sent to renderer: `get_settings` redacts the raw cookie and
-  emits only `__has_namebase_cookie: "true"` (`commands/settings.rs:12-16`)
+- The initial cookie is necessarily typed into the main renderer and could be
+  captured if that renderer is already compromised. After a successful backend
+  handoff, Namehold clears the React input state.
+- Stored cookie is never returned to the renderer: `get_settings` redacts the
+  raw value and emits only `__has_namebase_cookie: "true"`
+  (`commands/settings.rs`).
 - Renderer cannot write the cookie or base URL: both keys are in
-  `RENDERER_WRITE_DENYLIST` (`security.rs:20`); `update_setting` rejects
-  writes before any DB mutation
+  `RENDERER_WRITE_DENYLIST` (`security.rs`); generic `update_setting` rejects
+  writes before any DB mutation. Initial connection uses the dedicated,
+  validated `connect_namebase` command.
 - Per-transaction confirmation in a separate Rust-owned window: before signing
   any transaction, `sign_tx_draft` requires explicit user confirmation
-  (`commands/tx.rs:505-506`) showing action, recipient, amount, fee, txid, and
+  (`commands/tx.rs`) showing action, recipient, amount, fee, txid, and
   warnings
 
 #### 2. Local disk read (malware, laptop theft, backup snapshot)
@@ -77,9 +91,9 @@ VS Code, etc.).
 **Mitigations:**
 
 - Release builds: `test_base_url_override` returns empty
-  (`commands/namebase.rs:24-27`); the base URL is compile-time locked to
+  (`commands/namebase.rs`); the base URL is compile-time locked to
   `https://sunset.namebase.io`
-- Debug/test builds: `validate_base_url` (`namebase/client.rs:184`) enforces a
+- Debug/test builds: `validate_base_url` (`namebase/client.rs`) enforces a
   strict host allowlist + HTTPS requirement; loopback accepted only under
   `cfg(debug_assertions)`
 - Renderer cannot write the setting: `namebase_base_url` is in
@@ -91,7 +105,7 @@ The [hsd API documentation](https://hsd-dev.org/api-docs/#authentication)
 explicitly states: *"If you intend to use API via network and setup api-key,
 make sure to setup ssl too."*
 
-**Mitigation:** `guard_transport` (`noncustodial/rpc.rs:139`) enforces this
+**Mitigation:** `guard_transport` (`noncustodial/rpc.rs`) enforces this
 requirement:
 
 - `https://` is accepted for any host (key retained)
@@ -99,7 +113,7 @@ requirement:
   `localhost`)
 - Remote `http://` with a non-empty api-key is **rejected** with a clear error
 - If `NodeRpcClient::new` is called with a remote HTTP URL, it blanks the
-  api-key defensively (`rpc.rs:172-184`) so the key is never sent cleartext
+  api-key defensively (`noncustodial/rpc.rs`) so the key is never sent cleartext
   even if the guard is somehow bypassed
 
 This fully complies with the hsd node API's security guidance.
@@ -211,7 +225,7 @@ SPV (Simplified Payment Verification) mode runs hsd with `--spv` instead of
 
 - **Quick setup**: When you want to see your balance immediately without waiting for
   full sync.
-- **Low-disk environments**: When you can't afford ~15GB for a full node.
+- **Low-disk environments**: When an indexed full chain will not fit comfortably.
 - **Monitoring**: When you only need to watch names/auctions without sending.
 
 ### When NOT to use SPV mode
@@ -225,21 +239,22 @@ SPV (Simplified Payment Verification) mode runs hsd with `--spv` instead of
 
 | Concern | Mitigation | Location | Tests |
 |---------|-----------|----------|-------|
-| Renderer reads cookie | Redacted; presence marker only | `settings.rs:12-16` | `settings_cmd_tests` |
-| Renderer writes cookie | `RENDERER_WRITE_DENYLIST` | `security.rs:20` | `settings_cmd_tests` |
-| Renderer writes base URL | `RENDERER_WRITE_DENYLIST` | `security.rs:20` | `settings_cmd_tests` |
-| Base URL redirect (production) | Release build ignores setting | `namebase.rs:24-27` | `namebase.rs::tests` |
+| Renderer reads cookie | Redacted; presence marker only | `commands/settings.rs` | `settings_cmd_tests` |
+| Renderer writes cookie | `RENDERER_WRITE_DENYLIST` | `security.rs` | `settings_cmd_tests` |
+| Renderer writes base URL | `RENDERER_WRITE_DENYLIST` | `security.rs` | `settings_cmd_tests` |
+| Base URL redirect (production) | Release build ignores setting | `commands/namebase.rs` | `namebase.rs::tests` |
 | Cookie on disk (offline attacker) | AES-256-GCM under OS-keyring DEK | `cookie_vault.rs` | `cookie_vault::tests` |
-| Signing without confirmation | Rust-owned secure window | `tx.rs:505-506` | `tx_lifecycle_tests` |
-| RPC api-key sent cleartext | `guard_transport` rejects remote HTTP | `rpc.rs:139-168` | `rpc.rs::tests` |
-| Audit log leaks secrets | Redacted to `***` on write; re-redacted on read | `settings.rs:40-41, 68-69` | `settings_cmd_tests` |
+| Signing without confirmation | Rust-owned secure window | `commands/tx.rs` | `tx_lifecycle_tests` |
+| RPC api-key sent cleartext | `guard_transport` rejects remote HTTP | `noncustodial/rpc.rs` | `rpc.rs::tests` |
+| Audit log leaks secrets | Redacted to `***` on write; re-redacted on read | `commands/settings.rs` | `settings_cmd_tests` |
 
 ---
 
 ## Dependency auditing
 
 CI runs an advisory-only audit job (`cargo audit` + `pnpm audit --prod`) on
-every PR to surface newly-disclosed CVEs in the dependency graph.
+pull requests, main pushes, and manual qualification runs to surface
+newly-disclosed CVEs in the dependency graph.
 
 ### Suppressed advisories
 

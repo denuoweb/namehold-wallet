@@ -406,7 +406,7 @@ pub async fn read_balance(
 /// Names this wallet actually OWNS on-chain — the union of node-free discovered
 /// owners ([`discover_owned_names`]) and node-synced owners. Both are pure DB
 /// reads, so this is instant and never includes the migration *inventory*
-/// (`assets`) — those names live in the Portfolio / Migration views, not
+/// (`assets`) — those names belong to the optional migration data, not
 /// "Owned Names".
 ///
 /// This command is strictly DB-only: it never constructs an explorer client
