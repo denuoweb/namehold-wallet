@@ -255,7 +255,7 @@ SPV (Simplified Payment Verification) mode runs hsd with `--spv` instead of
 | Audit log leaks secrets | Redacted to `***` on write; re-redacted on read | `commands/settings.rs` | `settings_cmd_tests` |
 | Daemon crashes mid-sync | Heartbeat every 10s; stale-lock takeover after 30s; app respawns daemon on next startup | `db/sync_lock.rs`, `commands/daemon_ctl.rs` | `sync_lock` tests |
 | Concurrent writes by app + daemon | Cross-process `sync_locks` table; app acquires with priority, daemon preempts stale locks | `db/sync_lock.rs`, `commands/sync.rs` | `sync_lock`, `sync_race` tests |
-| Daemon signs / broadcasts (would-be) | Daemon has no access to key material or signing paths — it only reads hsd and writes sync data | `bin/namehold-syncd.rs`, `daemon/mod.rs` | (compile-time — no signing API in daemon build) |
+| Daemon signs / broadcasts (would-be) | Daemon has no wallet signing material or signing paths — it only reads hsd and writes sync data | `bin/namehold-syncd.rs`, `daemon/mod.rs` | (compile-time — no signing API in daemon build) |
 | hsd left running after app exit | Intentional when "Sync in background" ON; hsd bound to loopback + api-key required | `lib.rs` (setup/exit hooks) | `settings-background-sync` tests |
 
 ---

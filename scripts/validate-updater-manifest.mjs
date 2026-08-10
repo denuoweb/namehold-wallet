@@ -46,7 +46,9 @@ function validate() {
   const expectedVersion = process.env.EXPECTED_VERSION;
   const expectedRepository = process.env.EXPECTED_REPOSITORY;
   const expectedNotes = process.env.EXPECTED_NOTES;
-  if (!expectedVersion || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(expectedVersion)) {
+  const semanticVersion =
+    /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
+  if (!expectedVersion || !semanticVersion.test(expectedVersion)) {
     fail("EXPECTED_VERSION must be one semantic version");
   }
   if (!expectedRepository || !/^[^/\s]+\/[^/\s]+$/u.test(expectedRepository)) {

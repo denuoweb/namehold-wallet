@@ -446,6 +446,23 @@ jobs:
         run: |
           set -euo pipefail
           TAG="v$VERSION"
+          RELEASE_JSON="$RUNNER_TEMP/namehold-release-before-publish.json"
+          gh api "repos/$GH_REPO/releases/$RELEASE_ID" > "$RELEASE_JSON"
+          if [ "$(jq -r .draft "$RELEASE_JSON")" != "true" ] || \
+             [ "$(jq -r .tag_name "$RELEASE_JSON")" != "$TAG" ] || \
+             [ "$(jq -r .target_commitish "$RELEASE_JSON")" != "$SOURCE_SHA" ]; then
+            echo "::error::Release identity, source, or draft state changed immediately before publication."
+            exit 1
+          fi
+          EXACT_TAG_REF="$(gh api "repos/$GH_REPO/git/matching-refs/tags/$TAG" \
+            --jq ".[] | select(.ref == \"refs/tags/$TAG\") | .ref")"
+          if [ -n "$EXACT_TAG_REF" ]; then
+            TAG_SHA="$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)"
+            if [ "$TAG_SHA" != "$SOURCE_SHA" ]; then
+              echo "::error::$TAG changed to $TAG_SHA before publication; expected $SOURCE_SHA."
+              exit 1
+            fi
+          fi
           gh api --method PATCH "repos/$GH_REPO/releases/$RELEASE_ID" \
             -F draft=false >/dev/null
           RELEASE_JSON="$RUNNER_TEMP/namehold-published-release.json"

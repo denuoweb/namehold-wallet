@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const version = "0.4.1";
+const version = "0.4.1+build.1";
 const repository = "DimazzzZ/namehold-wallet";
 const notes = "Reviewed release notes";
 const validator = fileURLToPath(new URL("./validate-updater-manifest.mjs", import.meta.url));

@@ -685,7 +685,8 @@ Then open the app normally.
 - **Background sync is read-only.** When "Sync in background" is enabled, the
   `namehold-syncd` daemon reads from hsd and writes sync data to the local
   database — it never signs transactions, never broadcasts, and never has access
-  to key material. Your keys stay locked in the encrypted vault.
+  to wallet signing material. It does hold the configured hsd RPC API key while
+  running. Your wallet keys stay locked in the encrypted vault.
 - **What Namehold never does.** Never asks for or transmits your seed phrase,
   never logs passphrases or private keys, never talks to a remote wallet
   service.
