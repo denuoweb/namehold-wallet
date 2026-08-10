@@ -2,8 +2,7 @@ import { Card } from "./ui/Card";
 import { Button } from "./ui/Button";
 import { openExternal } from "../lib/openExternal";
 import logo from "../../src-tauri/icons/logo.png";
-
-const APP_VERSION = "0.4.0";
+import { APP_VERSION } from "../lib/appVersion";
 
 export function AboutPage() {
   const handleGitHubClick = async () => {

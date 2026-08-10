@@ -54,7 +54,7 @@ entered and displayed only inside a small **Rust-owned secure window**.
 
 ### Prerequisites
 
-- The Namehold desktop app (macOS `.dmg`, Windows `.msi`, or Linux `.AppImage`/`.deb`).
+- The Namehold desktop app (macOS `.dmg`, Windows NSIS `.exe`, or Linux `.AppImage`/`.deb`).
 - To **send HNS or perform name actions**, you also need [hsd](https://github.com/handshake-org/hsd)
   — the app can start it for you (see [Node control](#11-node-control)). Reads
   work without hsd.

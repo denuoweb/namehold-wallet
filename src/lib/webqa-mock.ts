@@ -1,3 +1,5 @@
+import { APP_VERSION } from "./appVersion";
+
 /**
  * Web-QA mock backend.
  *
@@ -367,8 +369,9 @@ const handlers: Record<string, Handler> = {
   is_daemon_alive: () => false,
 
   // ── Updates ───────────────────────────────────────────────────────────
-  // Browser QA has no real updater; report a fixed version and "up to date".
-  current_version: () => "0.4.0",
+  // Browser QA has no real updater; report the checked-in version and
+  // "up to date".
+  current_version: () => APP_VERSION,
   check_for_update: () => null,
   install_update: () => null,
 

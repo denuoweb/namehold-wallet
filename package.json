@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest",
+    "check:version": "node scripts/check-version-consistency.mjs",
     "lint:secure-imports": "node scripts/lint-secure-imports.mjs"
   },
   "dependencies": {

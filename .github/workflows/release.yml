@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version, e.g. 0.2.0 (blank = use src-tauri/tauri.conf.json)"
+        description: "Checked-in version (optional; must match package.json)"
         required: false
         type: string
       prerelease:
@@ -27,7 +27,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Resolve the version (input > tag > tauri.conf.json), validate it, and open a
+  # Validate the checked-in version and exact tag/manual input before opening a
   # DRAFT release that the per-OS build jobs upload their bundles to.
   prepare:
     name: Prepare release
@@ -37,12 +37,12 @@ jobs:
       prerelease: ${{ steps.resolve.outputs.prerelease }}
       release_id: ${{ steps.draft.outputs.release_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Resolve + validate version
         id: resolve
         # Untrusted/manual inputs are passed via env (never interpolated into the
-        # script) and the resolved version is regex-validated before any later use.
+        # script). Tags and optional manual input must match the checked-in version.
         env:
           VERSION_INPUT: ${{ github.event.inputs.version }}
           PRERELEASE_INPUT: ${{ github.event.inputs.prerelease }}
@@ -50,15 +50,13 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "${VERSION_INPUT:-}" ]; then
-            V="$VERSION_INPUT"
-          elif [ "$EVENT_NAME" = "push" ]; then
-            V="${REF_NAME#v}"
+          V="$(jq -r .version package.json)"
+          if [ "$EVENT_NAME" = "push" ]; then
+            RELEASE_TAG="$REF_NAME" node scripts/check-version-consistency.mjs
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            EXPECTED_VERSION="${VERSION_INPUT:-}" node scripts/check-version-consistency.mjs
           else
-            V="$(jq -r .version src-tauri/tauri.conf.json)"
-          fi
-          if ! printf '%s' "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
-            echo "::error::Invalid version '$V' (expected semver like 1.2.3 or 1.2.3-rc.1)"
+            echo "::error::Unsupported release event '$EVENT_NAME'"
             exit 1
           fi
           PRE=false
@@ -152,7 +150,7 @@ jobs:
       # handled by the "Verify sccache backend" step below.
       SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Refresh apt package index (Linux)
         if: matrix.platform == 'ubuntu-22.04'
@@ -177,24 +175,25 @@ jobs:
           # in sync with ci.yml.
           version: "2"
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
           version: 11.17.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # 1.97.0
         with:
+          toolchain: 1.97.0
           targets: ${{ matrix.rust_targets }}
 
       # sccache (all platforms). Installed before Swatinem so the compiler
       # wrapper is on PATH by the time cargo runs. `mozilla/sccache-action`
       # handles per-OS binary install; the GHA backend is enabled via the
       # job-level env block above.
-      - uses: mozilla/sccache-action@v0.0.7
+      - uses: mozilla/sccache-action@054db53350805f83040bf3e6e9b8cf5a139aa7c9 # v0.0.7
 
       # If the GitHub Actions Cache backend is unavailable, sccache's server
       # fails to start and — because it's RUSTC_WRAPPER — hard-fails the whole
@@ -210,7 +209,7 @@ jobs:
             echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
           fi
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri
           # Stabilise the cache key against `Cargo.toml`/`Cargo.lock` version
@@ -224,27 +223,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      # On a manual run with a version override, sync it into the version files so
-      # the produced bundles are named for the release. Version is pre-validated in
-      # `prepare`; passed via env. jq is available on all GitHub-hosted runners.
-      - name: Sync version files
-        shell: bash
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          set -euo pipefail
-          current="$(jq -r .version src-tauri/tauri.conf.json)"
-          if [ "$current" = "$VERSION" ]; then
-            echo "Version already $VERSION — no sync needed."
-            exit 0
-          fi
-          echo "Syncing version $current -> $VERSION"
-          tmp="$(mktemp)"
-          jq --arg v "$VERSION" '.version = $v' src-tauri/tauri.conf.json > "$tmp" && mv "$tmp" src-tauri/tauri.conf.json
-          jq --arg v "$VERSION" '.version = $v' package.json > "$tmp" && mv "$tmp" package.json
-          # First [package] version key in Cargo.toml only.
-          perl -0pi -e 's/^version = "[^"]*"/version = "'"$VERSION"'"/m if !$done++' src-tauri/Cargo.toml
 
       # Build the namehold-syncd daemon sidecar for bundling. Tauri's externalBin
       # expects `binaries/namehold-syncd-<target-triple>` in src-tauri/. For the
@@ -288,7 +266,7 @@ jobs:
           cp "target/release/namehold-syncd${EXT}" "binaries/namehold-syncd-${TARGET_TRIPLE}${EXT}"
 
       - name: Build + upload bundles
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0 (audited)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # --- Updater signing (required for auto-update) ---

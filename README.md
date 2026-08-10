@@ -205,8 +205,8 @@ rest of the wallet.
 pnpm tauri build
 ```
 
-Output in `src-tauri/target/release/bundle/` — macOS `.app`/`.dmg`, Windows `.msi`,
-Linux `.AppImage`/`.deb`. CI (PR tests), a dependency-audit gate (`cargo audit` +
+Output in `src-tauri/target/release/bundle/` — macOS `.app`/`.dmg`, Windows NSIS
+`.exe`, Linux `.AppImage`/`.deb`. CI (PR tests), a dependency-audit gate (`cargo audit` +
 `pnpm audit`), and the cross-platform release pipeline live in
 [`.github/workflows`](.github/workflows).
 

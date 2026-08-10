@@ -30,22 +30,30 @@ This creates:
 
 ## Cutting a release
 
-1. Bump the version in `src-tauri/tauri.conf.json`, `package.json`,
-   `src-tauri/Cargo.toml`, `src/components/Layout.tsx`, and
-   `src/lib/webqa-mock.ts` (`current_version`). Run `cargo check` in
-   `src-tauri/` to update `Cargo.lock`. Add a CHANGELOG entry: rename
-   `[Unreleased]` → `[X.Y.Z] - <date>` and open a fresh `[Unreleased]`.
+1. Bump the version in `package.json`, `src-tauri/tauri.conf.json`, and
+   `src-tauri/Cargo.toml`. Run `cargo check` in `src-tauri/` to update the
+   `namehold-wallet` entry in `Cargo.lock`, then run `pnpm check:version` from
+   the repository root. The sidebar, About page, and browser-QA updater mock
+   all derive their version from `package.json`; do not edit them separately.
+   Add a CHANGELOG entry: rename `[Unreleased]` → `[X.Y.Z] - <date>` and open a
+   fresh `[Unreleased]`.
 2. Commit and tag:
    ```bash
-   git tag v0.X.0
+   git tag vX.Y.Z
    git push origin main --tags
    ```
+   The tag must be exactly `v` plus the checked-in version. A manual workflow
+   run uses that same checked-in version; its optional version input is only a
+   confirmation and cannot override source files.
 3. The `release.yml` workflow:
+   - Validates all checked-in version sources and the exact tag/manual input
+     before creating a release or starting a build.
    - Creates a **draft** GitHub Release.
    - Builds on macOS (universal), Linux, Windows.
    - Runs `beforeBuildCommand` to build the `namehold-syncd` sidecar binary
      per-platform (macOS universal, Linux, Windows) and stages it for bundling.
-   - `tauri-action` produces the bundles **+ `.sig` files + `latest.json`**
+   - `tauri-action` produces the bundles (including the Windows NSIS `.exe`)
+     **+ `.sig` files + `latest.json`**
      (because `createUpdaterArtifacts: true` and the signing key is set).
    - The sidecar binary is bundled into each app bundle via the `externalBin`
      configuration in `tauri.conf.json`.

@@ -15,7 +15,7 @@ jobs:
     name: Validate workflow YAML
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Parse every workflow file
         run: |
@@ -29,5 +29,22 @@ jobs:
               except yaml.YAMLError as e:
                   ok = False
                   print(f"❌ {f}: {e}")
+          sys.exit(0 if ok else 1)
+          PY
+
+      - name: Reject floating action references
+        run: |
+          python3 - <<'PY'
+          import glob, re, sys
+
+          ok = True
+          action = re.compile(r"^\s*-?\s*uses:\s*([^\s#]+)")
+          immutable = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
+          for path in sorted(glob.glob(".github/workflows/*.yml") + glob.glob(".github/workflows/*.yaml")):
+              for number, line in enumerate(open(path), 1):
+                  match = action.match(line)
+                  if match and not immutable.fullmatch(match.group(1)):
+                      ok = False
+                      print(f"❌ {path}:{number}: floating action reference {match.group(1)}")
           sys.exit(0 if ok else 1)
           PY
