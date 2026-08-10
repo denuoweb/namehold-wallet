@@ -18,12 +18,11 @@ on:
 permissions:
   contents: write
 
-# Prevent a re-tag (or force-push of a tag) from stacking parallel release
-# builds against the same ref. `cancel-in-progress: false` keeps a running
-# release safe from accidental cancellation — a second tag with the same name
-# just waits its turn instead of racing.
+# A tag push and a manual dispatch use different refs but can still resolve the
+# same checked-in version. Serialize every release run for this repository so
+# those two entry points can never mutate one draft concurrently.
 concurrency:
-  group: release-${{ github.ref }}
+  group: namehold-release-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
@@ -35,6 +34,7 @@ jobs:
     outputs:
       version: ${{ steps.resolve.outputs.version }}
       prerelease: ${{ steps.resolve.outputs.prerelease }}
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
       release_id: ${{ steps.draft.outputs.release_id }}
       release_notes: ${{ steps.release_notes.outputs.notes }}
     steps:
@@ -64,9 +64,15 @@ jobs:
           if [ "${PRERELEASE_INPUT:-false}" = "true" ] || printf '%s' "$V" | grep -Eq -- '-(alpha|beta|rc)'; then
             PRE=true
           fi
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          if ! printf '%s\n' "$SOURCE_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::Unable to resolve one exact source commit."
+            exit 1
+          fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
-          echo "Resolved version=$V prerelease=$PRE"
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "Resolved version=$V prerelease=$PRE source=$SOURCE_SHA"
 
       - name: Verify release repository matches updater channel
         env:
@@ -80,7 +86,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ steps.resolve.outputs.version }}
           PRERELEASE: ${{ steps.resolve.outputs.prerelease }}
-          SHA: ${{ github.sha }}
+          SHA: ${{ steps.resolve.outputs.source_sha }}
         run: |
           set -euo pipefail
           TAG="v$VERSION"
@@ -97,23 +103,60 @@ jobs:
               exit 1
             fi
           fi
-          # Idempotent: create the draft (tagging $SHA on manual runs); if a release
-          # for the tag already exists (re-run), just reuse it.
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
+
+          # GitHub's release-by-tag endpoint omits drafts. Enumerate the
+          # authenticated release list so a published release can never be
+          # mistaken for an idempotent draft rerun.
+          RELEASES_JSON="$RUNNER_TEMP/namehold-releases.json"
+          gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > "$RELEASES_JSON"
+          RELEASE_COUNT="$(jq --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)] | length' "$RELEASES_JSON")"
+          if [ "$RELEASE_COUNT" -gt 1 ]; then
+            echo "::error::Found multiple releases for $TAG; refusing ambiguous release mutation."
+            exit 1
+          fi
+
+          if [ "$RELEASE_COUNT" -eq 1 ]; then
+            EXISTING_DRAFT="$(jq -r --arg tag "$TAG" '.[][] | select(.tag_name == $tag) | .draft' "$RELEASES_JSON")"
+            EXISTING_TARGET="$(jq -r --arg tag "$TAG" '.[][] | select(.tag_name == $tag) | .target_commitish' "$RELEASES_JSON")"
+            RID="$(jq -r --arg tag "$TAG" '.[][] | select(.tag_name == $tag) | .id' "$RELEASES_JSON")"
+            if [ "$EXISTING_DRAFT" != "true" ]; then
+              echo "::error::$TAG is already public; published signed assets and latest.json are immutable. Bump the checked-in version."
+              exit 1
+            fi
+            if [ "$EXISTING_TARGET" != "$SHA" ]; then
+              echo "::error::Existing $TAG draft targets $EXISTING_TARGET, not exact source $SHA. Delete the abandoned draft or bump the version after review."
+              exit 1
+            fi
+          else
             gh release create "$TAG" \
               --target "$SHA" \
               --draft \
               --title "Namehold $TAG" \
               --generate-notes \
               $PRE_FLAG
+            gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > "$RELEASES_JSON"
+            RELEASE_COUNT="$(jq --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)] | length' "$RELEASES_JSON")"
+            if [ "$RELEASE_COUNT" -ne 1 ]; then
+              echo "::error::Unable to read back one draft for $TAG."
+              exit 1
+            fi
+            EXISTING_DRAFT="$(jq -r --arg tag "$TAG" '.[][] | select(.tag_name == $tag) | .draft' "$RELEASES_JSON")"
+            EXISTING_TARGET="$(jq -r --arg tag "$TAG" '.[][] | select(.tag_name == $tag) | .target_commitish' "$RELEASES_JSON")"
+            RID="$(jq -r --arg tag "$TAG" '.[][] | select(.tag_name == $tag) | .id' "$RELEASES_JSON")"
+            if [ "$EXISTING_DRAFT" != "true" ] || [ "$EXISTING_TARGET" != "$SHA" ]; then
+              echo "::error::Created release did not read back as an exact-source draft."
+              exit 1
+            fi
           fi
-          RID="$(gh release view "$TAG" --json databaseId --jq .databaseId)"
           echo "release_id=$RID" >> "$GITHUB_OUTPUT"
 
       - name: Set release notes from CHANGELOG.md
         id: release_notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_ID: ${{ steps.draft.outputs.release_id }}
+          SOURCE_SHA: ${{ steps.resolve.outputs.source_sha }}
           VERSION: ${{ steps.resolve.outputs.version }}
         run: |
           set -euo pipefail
@@ -128,16 +171,26 @@ jobs:
             found { print }
           ' CHANGELOG.md | sed '/./,$!d')"
           if [ -z "$NOTES" ]; then
-            echo "::warning::No CHANGELOG.md entry found for $VERSION — keeping auto-generated notes."
-            echo "notes=" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::CHANGELOG.md has no non-empty section for $VERSION; updater notes are mandatory."
+            exit 1
           fi
           echo "Setting release body from CHANGELOG.md ($VERSION):"
           echo "$NOTES" | head -5
           echo "..."
-          # Write to a temp file to avoid shell quoting issues with special chars.
-          printf '%s\n' "$NOTES" > /tmp/release-notes.md
-          gh release edit "$TAG" --notes-file /tmp/release-notes.md
+          # Re-read and update the exact draft ID. Never address release state by
+          # tag after preparation: an administrator may have changed it.
+          RELEASE_JSON="$RUNNER_TEMP/namehold-release-before-notes.json"
+          NOTES_FILE="$RUNNER_TEMP/namehold-release-notes.md"
+          gh api "repos/$GH_REPO/releases/$RELEASE_ID" > "$RELEASE_JSON"
+          if [ "$(jq -r .draft "$RELEASE_JSON")" != "true" ] || \
+             [ "$(jq -r .tag_name "$RELEASE_JSON")" != "$TAG" ] || \
+             [ "$(jq -r .target_commitish "$RELEASE_JSON")" != "$SOURCE_SHA" ]; then
+            echo "::error::Release identity, source, or draft state changed before notes were applied."
+            exit 1
+          fi
+          printf '%s\n' "$NOTES" > "$NOTES_FILE"
+          jq -n --rawfile body "$NOTES_FILE" '{body: $body}' | \
+            gh api --method PATCH "repos/$GH_REPO/releases/$RELEASE_ID" --input - >/dev/null
           DELIMITER="NAMEHOLD_RELEASE_NOTES_${RANDOM}_${RANDOM}"
           {
             echo "notes<<$DELIMITER"
@@ -152,6 +205,9 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
+      # The pinned tauri-action merges, deletes, and re-uploads latest.json.
+      # Serial execution prevents two OS jobs from racing a partial manifest.
+      max-parallel: 1
       matrix:
         include:
           - platform: macos-latest
@@ -306,6 +362,8 @@ jobs:
           # APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
         with:
           releaseId: ${{ needs.prepare.outputs.release_id }}
+          includeUpdaterJson: true
+          updaterJsonKeepUniversal: false
           # tauri-action copies this value into latest.json. Editing only the
           # GitHub Release body leaves the in-app updater notes empty.
           releaseBody: ${{ needs.prepare.outputs.release_notes }}
@@ -324,27 +382,77 @@ jobs:
     needs: [prepare, build]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
       - name: Verify updater manifest was produced
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
           VERSION: ${{ needs.prepare.outputs.version }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          EXPECTED_NOTES: ${{ needs.prepare.outputs.release_notes }}
         run: |
           set -euo pipefail
-          # tauri-action uploads `latest.json` (the updater manifest) to the
-          # release when createUpdaterArtifacts + signing key are set. Fail the
-          # publish if it's missing, so we never un-draft a release that would
-          # leave existing installs unable to update.
-          assets="$(gh release view "v$VERSION" --json assets --jq '.assets[].name')"
-          echo "Release assets:"; echo "$assets"
-          if ! printf '%s\n' "$assets" | grep -qx 'latest.json'; then
-            echo "::error::latest.json missing from release v$VERSION — updater signing likely not configured (set TAURI_SIGNING_PRIVATE_KEY)."
+          TAG="v$VERSION"
+          RELEASE_JSON="$RUNNER_TEMP/namehold-release.json"
+          RELEASE_ASSETS_JSON="$RUNNER_TEMP/namehold-release-assets.json"
+          MANIFEST_DIR="$RUNNER_TEMP/namehold-updater-manifest"
+          ASSET_NAMES="$RUNNER_TEMP/namehold-release-assets.txt"
+          mkdir -p "$MANIFEST_DIR"
+
+          gh api "repos/$GH_REPO/releases/$RELEASE_ID" > "$RELEASE_JSON"
+          if [ "$(jq -r .draft "$RELEASE_JSON")" != "true" ]; then
+            echo "::error::$TAG is no longer a draft; refusing to mutate a public release."
             exit 1
           fi
+          if [ "$(jq -r .tag_name "$RELEASE_JSON")" != "$TAG" ] || \
+             [ "$(jq -r .target_commitish "$RELEASE_JSON")" != "$SOURCE_SHA" ]; then
+            echo "::error::Release identity or source target changed after preparation."
+            exit 1
+          fi
+
+          gh api --paginate --slurp \
+            "repos/$GH_REPO/releases/$RELEASE_ID/assets?per_page=100" \
+            > "$RELEASE_ASSETS_JSON"
+          jq -r '.[][] | .name' "$RELEASE_ASSETS_JSON" | sort -u > "$ASSET_NAMES"
+          echo "Release assets:"; cat "$ASSET_NAMES"
+          if ! grep -qx 'latest.json' "$ASSET_NAMES"; then
+            echo "::error::latest.json missing from $TAG — updater signing likely not configured."
+            exit 1
+          fi
+          LATEST_COUNT="$(jq '[.[][] | select(.name == "latest.json")] | length' "$RELEASE_ASSETS_JSON")"
+          if [ "$LATEST_COUNT" -ne 1 ]; then
+            echo "::error::$TAG must contain exactly one latest.json asset."
+            exit 1
+          fi
+          LATEST_ID="$(jq -r '.[][] | select(.name == "latest.json") | .id' "$RELEASE_ASSETS_JSON")"
+          gh api \
+            -H 'Accept: application/octet-stream' \
+            "repos/$GH_REPO/releases/assets/$LATEST_ID" \
+            > "$MANIFEST_DIR/latest.json"
+          EXPECTED_VERSION="$VERSION" \
+          EXPECTED_REPOSITORY="$GH_REPO" \
+          node scripts/validate-updater-manifest.mjs \
+            "$MANIFEST_DIR/latest.json" "$ASSET_NAMES"
 
       - name: Un-draft the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
           VERSION: ${{ needs.prepare.outputs.version }}
-        run: gh release edit "v$VERSION" --draft=false
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          TAG="v$VERSION"
+          gh api --method PATCH "repos/$GH_REPO/releases/$RELEASE_ID" \
+            -F draft=false >/dev/null
+          RELEASE_JSON="$RUNNER_TEMP/namehold-published-release.json"
+          gh api "repos/$GH_REPO/releases/$RELEASE_ID" > "$RELEASE_JSON"
+          if [ "$(jq -r .draft "$RELEASE_JSON")" != "false" ] || \
+             [ "$(jq -r .tag_name "$RELEASE_JSON")" != "$TAG" ] || \
+             [ "$(jq -r .target_commitish "$RELEASE_JSON")" != "$SOURCE_SHA" ]; then
+            echo "::error::Published release readback did not match the approved release."
+            exit 1
+          fi

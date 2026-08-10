@@ -73,12 +73,17 @@ Changing a Git remote alone does not migrate the update channel.
    version; its optional version input is only a confirmation and cannot
    override source files. If the version tag already resolves to another
    commit, the workflow fails before touching a release; bump the version
-   instead of rebuilding old version metadata from new source.
+   instead of rebuilding old version metadata from new source. A rerun may
+   resume only a draft whose target is that same exact commit. An already-public
+   release is immutable: the workflow refuses to replace its signed assets or
+   updater manifest even when the tag still resolves to the same commit.
 3. The `release.yml` workflow:
    - Validates release authority, all checked-in version sources, and the exact
      tag/manual input before creating a release or starting a build.
    - Creates a **draft** GitHub Release.
-   - Builds on macOS (universal), Linux, Windows.
+   - Builds on macOS (universal), Linux, and Windows in a serialized matrix.
+     The pinned `tauri-action` merges and re-uploads `latest.json`; serializing
+     those jobs prevents two platforms from overwriting each other's entries.
    - Runs `beforeBuildCommand` to build the `namehold-syncd` sidecar binary
      per-platform (macOS universal, Linux, Windows) and stages it for bundling.
    - `tauri-action` produces the bundles (including the Windows NSIS `.exe`)
@@ -86,8 +91,14 @@ Changing a Git remote alone does not migrate the update channel.
      (because `createUpdaterArtifacts: true` and the signing key is set).
    - The sidecar binary is bundled into each app bundle via the `externalBin`
      configuration in `tauri.conf.json`.
-   - Copies the matching CHANGELOG entry into both the GitHub Release and the
-     updater manifest, then verifies `latest.json` is present.
+   - Requires a non-empty matching CHANGELOG entry and copies it into both the
+     GitHub Release and updater manifest.
+   - Before publication, verifies the release is still a draft targeting the
+     exact source commit and validates `latest.json` against the complete
+     macOS arm64/x86_64, Linux AppImage/deb/rpm, and Windows NSIS platform set.
+     Every URL and signature must resolve to an asset in the approved release
+     repository. A missing or partial platform manifest leaves the release as
+     a draft.
    - Un-drafts the release (makes it public + "latest").
 4. Existing installs auto-detect the new version within ~30 s of their next
    launch (or immediately when the user clicks "Check for updates" in Settings).
