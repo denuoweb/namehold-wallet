@@ -2,7 +2,27 @@
 
 ## [Unreleased]
 
-(No changes yet.)
+### Added
+- The first macOS close-to-tray action now explains that Namehold remains in
+  the menu bar; reopening from either the Dock or tray restores the window and
+  Dock icon.
+
+### Fixed
+- Granted the Tauri autostart capability required by **Launch at login**.
+- Corrected the Windows native handle check and the macOS universal sidecar
+  staging that had blocked release bundles; Windows releases now use NSIS.
+- Made all application-version consumers derive from the checked-in package
+  version and reject mismatched release tags or manual version inputs.
+- Pinned third-party GitHub Actions and restored explicit main-branch CI and
+  workflow-validation dispatches.
+- Added a fail-closed release-authority check so a fork cannot publish an update
+  channel that installed clients do not query, and prevented an existing
+  version tag from being rebuilt from a different commit.
+- Propagated CHANGELOG notes into `latest.json` so the in-app updater can show
+  the same notes as the GitHub Release.
+
+### Changed
+- Added compiler and Rust target caching to the cross-platform release workflow.
 
 ## [0.4.0] - 2026-08-07
 

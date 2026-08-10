@@ -36,6 +36,7 @@ jobs:
       version: ${{ steps.resolve.outputs.version }}
       prerelease: ${{ steps.resolve.outputs.prerelease }}
       release_id: ${{ steps.draft.outputs.release_id }}
+      release_notes: ${{ steps.release_notes.outputs.notes }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -67,10 +68,16 @@ jobs:
           echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
           echo "Resolved version=$V prerelease=$PRE"
 
+      - name: Verify release repository matches updater channel
+        env:
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: node scripts/check-release-authority.mjs
+
       - name: Create draft release
         id: draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           VERSION: ${{ steps.resolve.outputs.version }}
           PRERELEASE: ${{ steps.resolve.outputs.prerelease }}
           SHA: ${{ github.sha }}
@@ -79,6 +86,17 @@ jobs:
           TAG="v$VERSION"
           PRE_FLAG=""
           [ "$PRERELEASE" = "true" ] && PRE_FLAG="--prerelease"
+          # A manual run must never rebuild a version already tagged in this
+          # release repository from a different commit.
+          EXACT_TAG_REF="$(gh api "repos/$GH_REPO/git/matching-refs/tags/$TAG" \
+            --jq ".[] | select(.ref == \"refs/tags/$TAG\") | .ref")"
+          if [ -n "$EXACT_TAG_REF" ]; then
+            EXISTING_TAG_SHA="$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)"
+            if [ "$EXISTING_TAG_SHA" != "$SHA" ]; then
+              echo "::error::$TAG already resolves to $EXISTING_TAG_SHA; this workflow is running at $SHA. Bump the checked-in version instead of rebuilding an existing version from new source."
+              exit 1
+            fi
+          fi
           # Idempotent: create the draft (tagging $SHA on manual runs); if a release
           # for the tag already exists (re-run), just reuse it.
           if ! gh release view "$TAG" >/dev/null 2>&1; then
@@ -93,6 +111,7 @@ jobs:
           echo "release_id=$RID" >> "$GITHUB_OUTPUT"
 
       - name: Set release notes from CHANGELOG.md
+        id: release_notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.resolve.outputs.version }}
@@ -110,6 +129,7 @@ jobs:
           ' CHANGELOG.md | sed '/./,$!d')"
           if [ -z "$NOTES" ]; then
             echo "::warning::No CHANGELOG.md entry found for $VERSION — keeping auto-generated notes."
+            echo "notes=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "Setting release body from CHANGELOG.md ($VERSION):"
@@ -118,6 +138,12 @@ jobs:
           # Write to a temp file to avoid shell quoting issues with special chars.
           printf '%s\n' "$NOTES" > /tmp/release-notes.md
           gh release edit "$TAG" --notes-file /tmp/release-notes.md
+          DELIMITER="NAMEHOLD_RELEASE_NOTES_${RANDOM}_${RANDOM}"
+          {
+            echo "notes<<$DELIMITER"
+            printf '%s\n' "$NOTES"
+            echo "$DELIMITER"
+          } >> "$GITHUB_OUTPUT"
 
   build:
     name: Build (${{ matrix.platform }})
@@ -280,6 +306,9 @@ jobs:
           # APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
         with:
           releaseId: ${{ needs.prepare.outputs.release_id }}
+          # tauri-action copies this value into latest.json. Editing only the
+          # GitHub Release body leaves the in-app updater notes empty.
+          releaseBody: ${{ needs.prepare.outputs.release_notes }}
           args: ${{ matrix.args }}
 
       # Surface cache effectiveness in the job log (hit rate, compile requests).
