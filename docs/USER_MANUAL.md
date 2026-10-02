@@ -600,7 +600,7 @@ as the rest of the wallet (Signer unlock → sign → broadcast).
 
 ## 13. System Tray
 
-Starting with v0.4.0, Namehold places an icon in your system tray (menu bar on
+Namehold places an icon in your system tray (menu bar on
 macOS, notification area on Windows/Linux). This keeps the app, hsd node, and
 background sync daemon running even after you close the main window.
 
@@ -746,7 +746,7 @@ spaces, and duplicate rows are OK (they're updated, not errors).
 
 ## 17. Auto-update
 
-Starting with **v0.2.0**, Namehold checks for its own updates automatically.
+Namehold checks for its own updates automatically.
 You don't need to visit a website or run a package manager; new signed
 builds are delivered and installed in place.
 
@@ -781,7 +781,7 @@ used only by the release process.
 ### Checking your current version
 
 Open **Settings > Updates**. Your running version is shown at the top of
-the card (for example, "Current version: v0.4.0"). The same version also appears
+the card. The same version also appears
 at the bottom of the sidebar and on the **About** page.
 
 ---
