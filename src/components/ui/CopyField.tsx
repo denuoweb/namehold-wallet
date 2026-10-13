@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { writeText } from "../../lib/clipboard";
 import { openExternal } from "../../lib/openExternal";
 import { useUiStore } from "../../stores/ui";
@@ -50,13 +50,28 @@ export function CopyField({
 }: CopyFieldProps) {
   const [copied, setCopied] = useState(false);
   const showToast = useUiStore((s) => s.showToast);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (resetTimer.current !== null) clearTimeout(resetTimer.current);
+    };
+  }, []);
 
   const handleCopy = async () => {
     if (!value) return;
     await writeText(value);
+    if (!mounted.current) return;
+    if (resetTimer.current !== null) clearTimeout(resetTimer.current);
     setCopied(true);
     showToast(`${toastLabel} copied`, "success");
-    setTimeout(() => setCopied(false), 2000);
+    resetTimer.current = setTimeout(() => {
+      resetTimer.current = null;
+      setCopied(false);
+    }, 2000);
   };
 
   return (
