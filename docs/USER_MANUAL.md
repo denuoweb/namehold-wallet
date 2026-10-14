@@ -284,13 +284,14 @@ modal shows a **Recover bid** panel during the REVEAL phase.
 You have two options:
 
 1. **Enter the amount** — if you remember what you bid, type the exact HNS
-   value and click **Recover bid**. Reconstruction is instant.
+   value and click **Recover bid**. Namehold verifies the value against the
+   on-chain blind before storing the commitment.
 2. **Auto-recover** — if you don't remember, click **Auto-recover
-   (brute-force)**. Namehold tries "round" values first (whole HNS, 0.1, 0.01
-   increments) which almost always wins, then falls back to a full integer
-   sweep up to the coin's lockup value. Typical bids under 100 HNS finish in
-   seconds. Very large lockups (>1000 HNS) return an error asking for the
-   known value instead.
+   (brute-force)**. Namehold tries whole HNS, 0.1 HNS, and 0.01 HNS increments
+   first, then scans the remaining values up to the coin's lockup. Search time
+   depends on the lockup and the machine. For lockups above 1000 HNS, the
+   exhaustive sweep is unavailable; enter the exact amount if the round-value
+   search does not find a match.
 
 Recovery uses only the account xpub (public) — it never needs your passphrase.
 It works for bids made in **any** hsd-compatible wallet, not just Namehold,

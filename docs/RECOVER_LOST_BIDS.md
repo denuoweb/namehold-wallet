@@ -68,26 +68,24 @@ Namehold.
 4. **The Recover bid panel appears automatically.**
    When Namehold detects a BID coin in the REVEAL phase with no local
    commitment row, it shows a gray "Recover bid" panel where the Reveal
-   button would normally be. You don't need to enable anything — it just
-   appears when the situation calls for it.
+   button would normally be. The panel appears when these conditions are met.
 
 5. **Recover — two options:**
 
    **a. You remember the exact amount you bid:**
    Type the HNS value into the "Your bid amount (HNS)" field and click
    **Recover bid**. The app derives the nonce, checks the blind, and writes
-   the commitment row. Instant.
+   the commitment row if the value matches.
 
    **b. You don't remember the amount:**
    Click **Auto-recover (brute-force)**. The button changes to "Searching…"
    while the app sweeps candidate values:
 
    - **Tier 1 — round values:** tries every whole HNS, then every 0.1 HNS,
-     then every 0.01 HNS increment up to the coin's lockup. Almost every
-     real-world bid is a round number, so this wins fast.
+     then every 0.01 HNS increment up to the coin's lockup.
    - **Tier 2 — full sweep:** if Tier 1 misses, a parallel scan of every
-     dollarydoo (10⁻⁶ HNS) value up to the lockup runs. Typical bids under
-     100 HNS finish in seconds on a modern machine.
+     dollarydoo (10⁻⁶ HNS) value up to the lockup runs. Search time depends
+     on the lockup and the machine.
 
    On success, a toast shows the recovered amount (e.g. "Bid recovered
    (5.5 HNS) — you can reveal now.").
@@ -112,8 +110,8 @@ Namehold.
 ## FAQ
 
 **Do I need my original wallet installed?**
-No. Just the seed phrase. Namehold reconstructs everything from the seed +
-the on-chain data.
+No. Namehold uses your seed phrase and the on-chain bid data to reconstruct
+the commitment.
 
 **Does this work for bids I placed years ago?**
 Only if the bid is still in the REVEAL phase. If the reveal window already
@@ -132,5 +130,4 @@ was already revealed/redeemed (nothing to recover).
 
 **What if it says "bid value doesn't match" or "no bid value reproduces the
 on-chain blind"?**
-The seed you imported doesn't match the wallet that placed the bid. Double-
-check you're using the correct mnemonic.
+Check that you imported the seed phrase for the wallet that placed the bid.
